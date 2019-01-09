@@ -27,9 +27,11 @@ import (
 const exampleAppState = "I wish to wash my irish wristwatch"
 
 type app struct {
-	clientID     string
-	clientSecret string
-	redirectURI  string
+	clientID      string
+	clientSecret  string
+	redirectURI   string
+	vaultVersion  string
+	webPathPrefix string
 
 	verifier *oidc.IDTokenVerifier
 	provider *oidc.Provider
@@ -92,14 +94,13 @@ func (d debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func cmd() *cobra.Command {
 	var (
-		a             app
-		issuerURL     string
-		listen        string
-		tlsCert       string
-		tlsKey        string
-		rootCAs       string
-		webPathPrefix string
-		debug         bool
+		a         app
+		issuerURL string
+		listen    string
+		tlsCert   string
+		tlsKey    string
+		rootCAs   string
+		debug     bool
 	)
 	c := cobra.Command{
 		Use:   "example-app",
@@ -121,16 +122,16 @@ func cmd() *cobra.Command {
 			}
 
 			// Ensure trailing slash on webPathPrefix
-			if webPathPrefix != "/" {
-				if strings.HasPrefix(webPathPrefix, "/") {
-					webPathPrefix = fmt.Sprintf("%s/", path.Clean(webPathPrefix))
+			if a.webPathPrefix != "/" {
+				if strings.HasPrefix(a.webPathPrefix, "/") {
+					a.webPathPrefix = fmt.Sprintf("%s/", path.Clean(a.webPathPrefix))
 				} else {
 					return fmt.Errorf("web-path-prefix must start with /")
 				}
 			}
 
 			// Update Path in listenURL
-			listenURL.Path = webPathPrefix
+			listenURL.Path = a.webPathPrefix
 
 			if rootCAs != "" {
 				client, err := httpClientForRootCAs(rootCAs)
@@ -195,6 +196,12 @@ func cmd() *cobra.Command {
 			http.HandleFunc(redirectURL.Path, a.handleCallback)
 			http.HandleFunc(path.Join(listenURL.Path, "healthz"), a.handleHealthz)
 
+			fs := http.FileServer(http.Dir("web/static/"))
+			staticURI := path.Join(listenURL.Path, "static") + "/"
+
+			log.Printf("Registered static assets handler at: %s", staticURI)
+			http.Handle(staticURI, http.StripPrefix(staticURI, fs))
+
 			switch listenURL.Scheme {
 			case "http":
 				log.Printf("listening on %s", listenURL)
@@ -210,12 +217,13 @@ func cmd() *cobra.Command {
 	c.Flags().StringVar(&a.clientID, "client-id", "example-app", "OAuth2 client ID of this application.")
 	c.Flags().StringVar(&a.clientSecret, "client-secret", "ZXhhbXBsZS1hcHAtc2VjcmV0", "OAuth2 client secret of this application.")
 	c.Flags().StringVar(&a.redirectURI, "redirect-uri", "http://127.0.0.1:5555/callback", "Callback URL for OAuth2 responses.")
-	c.Flags().StringVar(&webPathPrefix, "web-path-prefix", "/", "A path-prefix from which to serve requests and assets.")
+	c.Flags().StringVar(&a.webPathPrefix, "web-path-prefix", "/", "A path-prefix from which to serve requests and assets.")
 	c.Flags().StringVar(&issuerURL, "issuer", "http://127.0.0.1:5556/dex", "URL of the OpenID Connect issuer.")
 	c.Flags().StringVar(&listen, "listen", "http://127.0.0.1:5555", "HTTP(S) address to listen at.")
 	c.Flags().StringVar(&tlsCert, "tls-cert", "", "X509 cert file to present when serving HTTPS.")
 	c.Flags().StringVar(&tlsKey, "tls-key", "", "Private key for the HTTPS cert.")
 	c.Flags().StringVar(&rootCAs, "issuer-root-ca", "", "Root certificate authorities for the issuer. Defaults to host certs.")
+	c.Flags().StringVar(&a.vaultVersion, "vault-version", "1.0.1", "Vault version which provides a download link to the the binary.")
 	c.Flags().BoolVar(&debug, "debug", false, "Print all request and responses from the OpenID Connect issuer.")
 	return &c
 }
@@ -306,7 +314,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	buff := new(bytes.Buffer)
 	json.Indent(buff, []byte(claims), "", "  ")
 
-	renderToken(w, a.redirectURI, rawIDToken)
+	renderToken(w, a.redirectURI, rawIDToken, buff.String(), a.webPathPrefix, a.vaultVersion)
 }
 
 func (a *app) handleHealthz(w http.ResponseWriter, r *http.Request) {

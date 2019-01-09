@@ -1,0 +1,30 @@
+{{ define "token-tab-windows" }}
+  <h3>Install and Set Up Vault</h3>
+  <div>
+    See
+    <a title="Install and setup Vault" href="https://www.vaultproject.io/docs/install/">
+      https://www.vaultproject.io/docs/install/
+    </a>
+
+    {{ if .VaultVersion }}
+      <p>
+        Download kubectl:
+        <a title="Download Vault"
+           href="https://releases.hashicorp.com/vault/{{ .VaultVersion }}/vault_{{ .VaultVersion }}_windows_amd64.zip">
+          https://releases.hashicorp.com/vault/{{ .VaultVersion }}/vault_{{ .VaultVersion }}_windows_amd64.zip
+        </a>
+      </p>
+    {{ end }}
+  </div>
+
+  <h3>Run configuration commands</h3>
+
+  <div class="command">
+
+    <button class="btn" style="float:right" data-clipboard-snippet="">
+      <img class="clippy" width="13" src="{{ .WebPathPrefix }}static/img/clippy.svg" alt="">
+    </button>
+    <pre><code>vault write oidc/login token={{ .IDToken }}</code></pre>
+  </div>
+
+{{ end }}
