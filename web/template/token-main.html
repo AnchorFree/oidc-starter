@@ -41,7 +41,10 @@
         <button class="tablinks active" onclick="openTab(event, 'Linux')">Linux</button>
         <button class="tablinks" onclick="openTab(event, 'MacOS')">MacOS</button>
         <button class="tablinks" onclick="openTab(event, 'Windows')">Windows</button>
-        <button class="tablinks" id="copy-all" style="float:right">Copy All</button>
+        <button class="tabbtn" id="copy-all" style="float:right">
+          <img width="13" src="{{ .WebPathPrefix }}static/img/clippy.svg" alt="">
+          All
+        </button>
       </div>
 
       <div id="Linux" class="tabcontent" style="display: block">
