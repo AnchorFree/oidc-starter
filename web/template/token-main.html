@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="google" content="notranslate">
+  <meta http-equiv="Content-Language" content="en">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+
+  <title>Vault Configuration</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="{{ .WebPathPrefix }}static/css/main.css" rel="stylesheet" type="text/css">
+  <link href="{{ .WebPathPrefix }}static/css/styles.css" rel="stylesheet" type="text/css">
+  <link href="{{ .WebPathPrefix }}static/css/tabs.css" rel="stylesheet" type="text/css">
+  <link rel="icon" href="{{ .WebPathPrefix }}static/favicons/favicon.svg">
+</head>
+
+<body class="theme-body">
+<div class="theme-navbar">
+</div>
+
+<div class="dex-kubeconfig-container">
+  <div class="theme-panel">
+    <div style="float:right">
+      <a href="{{ .WebPathPrefix }}">Login Again</a>
+    </div>
+    <h2 class="theme-heading">Generated Vault Token</h2>
+
+    <div>
+
+      <div class="spoiler spoiler-btn">
+        <div><p>Please check that you have been assigned to the expected Groups,
+            then follow the instructions based on your OS.</p></div>
+        <div class="groups spoiler-body">
+          <pre><code>{{ .Claims }}</code></pre>
+        </div>
+      </div>
+
+      <p>Select your Operating System to get correct settings for Vault</p>
+
+      <div class="tab">
+        <button class="tablinks active" onclick="openTab(event, 'Linux')">Linux</button>
+        <button class="tablinks" onclick="openTab(event, 'MacOS')">MacOS</button>
+        <button class="tablinks" onclick="openTab(event, 'Windows')">Windows</button>
+        <button class="tabbtn" id="copy-all" style="float:right">
+          <img width="13" src="{{ .WebPathPrefix }}static/img/clippy.svg" alt="">
+          All
+        </button>
+      </div>
+
+      <div id="Linux" class="tabcontent" style="display: block">
+        {{ template "token-tab-linux" . }}
+      </div>
+
+      <div id="MacOS" class="tabcontent">
+        {{ template "token-tab-macos" . }}
+      </div>
+
+      <div id="Windows" class="tabcontent">
+        {{ template "token-tab-windows" . }}
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ .WebPathPrefix }}static/js/highlight.pack.min.js"></script>
+  <script src="{{ .WebPathPrefix }}static/js/clipboard.min.js"></script>
+  <script src="{{ .WebPathPrefix }}static/js/snippets.js"></script>
+  <script src="{{ .WebPathPrefix }}static/js/tooltips.js"></script>
+  <script>
+    var clipboard = new ClipboardJS('.btn');
+    clipboard.on('success', function (e) {
+      console.log(e);
+    });
+    clipboard.on('error', function (e) {
+      console.log(e);
+    });
+  </script>
+  <script>
+    let copyAllClipboard = new ClipboardJS('#copy-all', {
+      text: function (trigger) {
+        let tab;
+        let copyText = "";
+
+        for (let e of document.getElementsByClassName("tabcontent")) {
+          if (e.style.display === "block") {
+            tab = e;
+            break;
+          }
+        }
+
+        let commands = tab.getElementsByClassName("command");
+        for (i = 0; i < commands.length; i++) {
+          copyText = copyText.concat(i > 0 ? "\n\n" : "").concat(commands[i].querySelector("code").innerText);
+        }
+
+        return copyText;
+      }
+    });
+    copyAllClipboard.on('success', function (e) {
+      console.log(e);
+    });
+    copyAllClipboard.on('error', function (e) {
+      console.log(e);
+    });
+  </script>
+  <script>
+    function openTab(evt, tabName) {
+      var i, tabcontent, tablinks;
+      tabcontent = document.getElementsByClassName("tabcontent");
+      for (i = 0; i < tabcontent.length; i++) {
+        tabcontent[i].style.display = "none";
+      }
+      tablinks = document.getElementsByClassName("tablinks");
+      for (i = 0; i < tablinks.length; i++) {
+        tablinks[i].className = tablinks[i].className.replace(" active", "");
+      }
+      document.getElementById(tabName).style.display = "block";
+      evt.currentTarget.className += " active";
+    }
+  </script>
+  <script>
+    function toggleSpoiler(spoilerElement, isInvertedCollapse, isInvertedExpand) {
+      let isCollapsing = spoilerElement.classList.contains('expanded');
+      let heightBefore = spoilerElement.offsetHeight;
+      let offsetBefore = window.pageYOffset;
+      spoilerElement.classList.toggle('instant', true);
+      spoilerElement.classList.toggle('expanded', !isCollapsing);
+      let isScrollRequired = (isCollapsing && isInvertedCollapse) ||
+        (!isCollapsing && isInvertedExpand);
+      if (isScrollRequired) {
+        let heightAfter = spoilerElement.offsetHeight;
+        let heightDelta = heightAfter - heightBefore;
+        window.scrollTo(0, offsetBefore + heightDelta);
+      }
+    }
+
+    for (let el of document.querySelectorAll('.spoiler-btn')) {
+      el.addEventListener('click', e => toggleSpoiler(el));
+    }
+  </script>
+</div>
+</body>
+</html>
