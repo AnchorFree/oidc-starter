@@ -15,6 +15,9 @@ FROM alpine:3.8
 ENV BINARY oidc-starter
 EXPOSE 5555
 RUN apk --no-cache add ca-certificates
-COPY --from=builder /build/${BINARY} /bin/${BINARY}
 
-ENTRYPOINT ["/bin/oidc-starter"]
+WORKDIR /app
+COPY --from=builder /go/src/${BINARY}/web web
+COPY --from=builder /build/${BINARY} bin/${BINARY}
+
+ENTRYPOINT ["/app/bin/oidc-starter"]
