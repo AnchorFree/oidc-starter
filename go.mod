@@ -5,6 +5,7 @@ require (
 	github.com/golang/protobuf v1.2.0
 	github.com/inconshreveable/mousetrap v1.0.0
 	github.com/pquerna/cachecontrol v0.0.0-20180517163645-1555304b9b35
+	github.com/prometheus/client_golang v0.9.2
 	github.com/spf13/cobra v0.0.3
 	github.com/spf13/pflag v1.0.3
 	golang.org/x/crypto v0.0.0-20181203042331-505ab145d0a9

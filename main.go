@@ -20,11 +20,12 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 	"golang.org/x/oauth2"
 )
-
-const exampleAppState = "I wish to wash my irish wristwatch"
 
 type app struct {
 	clientID      string
@@ -192,15 +193,43 @@ func cmd() *cobra.Command {
 			a.provider = provider
 			a.verifier = provider.Verifier(&oidc.Config{ClientID: a.clientID})
 
-			http.HandleFunc(listenURL.Path, a.handleIndex)
-			http.HandleFunc(redirectURL.Path, a.handleCallback)
-			http.HandleFunc(path.Join(listenURL.Path, "healthz"), a.handleHealthz)
+			indexHandler := promhttp.InstrumentHandlerCounter(
+				promauto.NewCounterVec(
+					prometheus.CounterOpts{
+						Name: "oidc_starter_index_requests_total",
+						Help: "Total number of index requests by HTTP status code.",
+					},
+					[]string{"code"},
+				),
+				http.HandlerFunc(a.handleIndex),
+			)
+			http.HandleFunc(listenURL.Path, indexHandler)
+			log.Printf("Registered index handler at: %s", listenURL.Path)
+
+			callbackHandler := promhttp.InstrumentHandlerCounter(
+				promauto.NewCounterVec(
+					prometheus.CounterOpts{
+						Name: "oidc_starter_callback_response_total",
+						Help: "Total number of index response by HTTP status code.",
+					},
+					[]string{"code"},
+				),
+				http.HandlerFunc(a.handleCallback),
+			)
+			http.HandleFunc(redirectURL.Path, callbackHandler)
+			log.Printf("Registered callback handler at: %s", redirectURL.Path)
+
+			healthzPattern := path.Join(listenURL.Path, "healthz")
+			http.HandleFunc(healthzPattern, a.handleHealthz)
+			log.Printf("Registered healthz handler at: %s", healthzPattern)
 
 			fs := http.FileServer(http.Dir("web/static/"))
-			staticURI := path.Join(listenURL.Path, "static") + "/"
+			staticPattern := path.Join(listenURL.Path, "static") + "/"
+			http.Handle(staticPattern, http.StripPrefix(staticPattern, fs))
+			log.Printf("Registered static assets handler at: %s", staticPattern)
 
-			log.Printf("Registered static assets handler at: %s", staticURI)
-			http.Handle(staticURI, http.StripPrefix(staticURI, fs))
+			http.Handle("/metrics", promhttp.Handler())
+			log.Printf("Registered metrics handler at: %s", "/metrics")
 
 			switch listenURL.Scheme {
 			case "http":
