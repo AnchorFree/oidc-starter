@@ -14,6 +14,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /build/${
 FROM alpine:3.8
 ENV BINARY oidc-starter
 EXPOSE 5555
+
 RUN apk --no-cache add ca-certificates
 
 WORKDIR /app
