@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -47,7 +48,7 @@ type app struct {
 // return an HTTP client which trusts the provided root CAs.
 func httpClientForRootCAs(rootCAs string) (*http.Client, error) {
 	tlsConfig := tls.Config{RootCAs: x509.NewCertPool()}
-	rootCABytes, err := ioutil.ReadFile(rootCAs)
+	rootCABytes, err := ioutil.ReadFile(filepath.Clean(rootCAs))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read root-ca: %v", err)
 	}
@@ -86,7 +87,7 @@ func (d debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	respDump, err := httputil.DumpResponse(resp, true)
 	if err != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, err
 	}
 	log.Printf("%s", respDump)
@@ -338,11 +339,17 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var claims json.RawMessage
-	idToken.Claims(&claims)
-
+	err = idToken.Claims(&claims)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get token claims: %v", err), http.StatusInternalServerError)
+		return
+	}
 	buff := new(bytes.Buffer)
-	json.Indent(buff, []byte(claims), "", "  ")
-
+	err = json.Indent(buff, []byte(claims), "", "  ")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to do json indent: %v", err), http.StatusInternalServerError)
+		return
+	}
 	renderToken(w, a.redirectURI, rawIDToken, buff.String(), a.webPathPrefix, a.vaultVersion)
 }
 
