@@ -3,13 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -20,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bluele/gcache"
 	"github.com/coreos/go-oidc"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -43,11 +47,13 @@ type app struct {
 	offlineAsScope bool
 
 	client *http.Client
+
+	stateCache gcache.Cache
 }
 
 // return an HTTP client which trusts the provided root CAs.
 func httpClientForRootCAs(rootCAs string) (*http.Client, error) {
-	tlsConfig := tls.Config{RootCAs: x509.NewCertPool()}
+	tlsConfig := tls.Config{RootCAs: x509.NewCertPool(), MinVersion: tls.VersionTLS12}
 	rootCABytes, err := ioutil.ReadFile(filepath.Clean(rootCAs))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read root-ca: %v", err)
@@ -232,13 +238,18 @@ func cmd() *cobra.Command {
 			http.Handle("/metrics", promhttp.Handler())
 			log.Printf("Registered metrics handler at: %s", "/metrics")
 
+			server := &http.Server{
+				Addr:              fmt.Sprintf("%s:%s", listenURL.Hostname(), listenURL.Port()),
+				ReadHeaderTimeout: 5 * time.Second,
+			}
+
 			switch listenURL.Scheme {
 			case "http":
 				log.Printf("listening on %s", listenURL)
-				return http.ListenAndServe(listenURL.Host, nil)
+				return server.ListenAndServe()
 			case "https":
-				log.Printf("listening on %s%s", listenURL)
-				return http.ListenAndServeTLS(listenURL.Host, tlsCert, tlsKey, nil)
+				log.Printf("listening on %s", listenURL)
+				return server.ListenAndServeTLS(tlsCert, tlsKey)
 			default:
 				return fmt.Errorf("listen address %q is not using http or https", listen)
 			}
@@ -255,6 +266,8 @@ func cmd() *cobra.Command {
 	c.Flags().StringVar(&rootCAs, "issuer-root-ca", "", "Root certificate authorities for the issuer. Defaults to host certs.")
 	c.Flags().StringVar(&a.vaultVersion, "vault-version", "1.0.1", "Vault version which provides a download link to the the binary.")
 	c.Flags().BoolVar(&debug, "debug", false, "Print all request and responses from the OpenID Connect issuer.")
+
+	a.stateCache = gcache.New(1_000).LRU().Expiration(time.Hour).Build()
 	return &c
 }
 
@@ -265,12 +278,42 @@ func main() {
 	}
 }
 
+// GenerateRandomString returns a securely generated random string.
+// It will return an error if the system's secure random
+// number generator fails to function correctly, in which
+// case the caller should not continue.
+func GenerateRandomString(n int) (string, error) {
+	const letters = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	ret := make([]byte, n)
+	for i := 0; i < n; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return "", err
+		}
+		ret[i] = letters[num.Int64()]
+	}
+
+	return string(ret), nil
+}
+
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 	var scopes []string
 	authCodeURL := ""
 	scopes = append(scopes, "groups", "openid", "profile", "email")
-	authCodeURL = a.oauth2Config(scopes).AuthCodeURL("")
 
+	state, err := GenerateRandomString(16)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to generate state: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	err = a.stateCache.Set(state, true)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("falied to store state: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	authCodeURL = a.oauth2Config(scopes).AuthCodeURL(state)
 	http.Redirect(w, r, authCodeURL, http.StatusSeeOther)
 }
 
@@ -296,12 +339,23 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 	case "GET":
 		// Authorization redirect callback from OAuth2 auth flow.
 		if errMsg := r.FormValue("error"); errMsg != "" {
-			http.Error(w, errMsg+": "+r.FormValue("error_description"), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("%v: %v", html.EscapeString(errMsg), html.EscapeString(r.FormValue("error_description"))), http.StatusBadRequest)
 			return
 		}
+		state := r.FormValue("state")
+		if state == "" {
+			http.Error(w, "no state in request", http.StatusBadRequest)
+			return
+		}
+		_, err = a.stateCache.GetIFPresent(state)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("unknown state in request: %v", html.EscapeString(state)), http.StatusBadRequest)
+			return
+		}
+
 		code := r.FormValue("code")
 		if code == "" {
-			http.Error(w, fmt.Sprintf("no code in request: %q", r.Form), http.StatusBadRequest)
+			http.Error(w, "no code in request", http.StatusBadRequest)
 			return
 		}
 		token, err = oauth2Config.Exchange(ctx, code)
@@ -309,7 +363,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		// Form request from frontend to refresh a token.
 		refresh := r.FormValue("refresh_token")
 		if refresh == "" {
-			http.Error(w, fmt.Sprintf("no refresh_token in request: %q", r.Form), http.StatusBadRequest)
+			http.Error(w, "no refresh_token in request", http.StatusBadRequest)
 			return
 		}
 		t := &oauth2.Token{
@@ -318,7 +372,7 @@ func (a *app) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 		token, err = oauth2Config.TokenSource(ctx, t).Token()
 	default:
-		http.Error(w, fmt.Sprintf("method not implemented: %s", r.Method), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("method not implemented: %v", r.Method), http.StatusBadRequest)
 		return
 	}
 

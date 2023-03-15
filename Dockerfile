@@ -1,9 +1,6 @@
-FROM golang:1.11.4-alpine3.8 as builder
+FROM golang:1.20.2-alpine3.17 as builder
 
-ENV GO111MODULE on
 ENV PROJECT_NAME oidc-starter
-
-RUN apk --no-cache add git
 
 WORKDIR /go/src/${PROJECT_NAME}
 COPY go.mod go.sum /go/src/${PROJECT_NAME}/
@@ -11,7 +8,7 @@ RUN go mod download
 COPY . /go/src/${PROJECT_NAME}
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o /build/${PROJECT_NAME}
 
-FROM alpine:3.8
+FROM alpine:3.17
 ENV BINARY oidc-starter
 EXPOSE 5555
 
